@@ -9,7 +9,7 @@
 #import "ViewController.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Speech/Speech.h>
-@interface ViewController ()
+@interface ViewController ()<SFSpeechRecognitionTaskDelegate>
 
 //录音
 @property (nonatomic, strong) AVAudioRecorder *recorder;
@@ -18,6 +18,9 @@
 @property (nonatomic, strong) AVAudioPlayer *player;
 
 @property (weak, nonatomic) IBOutlet UITextView *textView;
+
+@property(nonatomic,strong)NSArray *exclamations;
+
 @end
 
 @implementation ViewController
@@ -86,11 +89,6 @@
     }];
 }
 
-- (void)didReceiveMemoryWarning {
-    [super didReceiveMemoryWarning];
-    // Dispose of any resources that can be recreated.
-}
-
 /*
  touch down 手指按下会触发
  */
@@ -126,13 +124,8 @@
     
     //通过一个音频路径创建音频识别请求
     SFSpeechRecognitionRequest * request = [[SFSpeechURLRecognitionRequest alloc]initWithURL:url];
+    [rec recognitionTaskWithRequest:request delegate:self];
     
-    //这个block会回调几次 ，所以这个删除方法也会删除几次 不过也没有什么影响
-    [rec recognitionTaskWithRequest:request resultHandler:^(SFSpeechRecognitionResult * _Nullable result, NSError * _Nullable error) {
-        //语音识别的结果字符串
-        weakSelf.textView.text = result.bestTranscription.formattedString;
-        [weakSelf deleRecordAAC];
-    }];
 }
 
 
@@ -142,22 +135,105 @@
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask, YES);
     //文件名
     NSString *uniquePath=[[paths objectAtIndex:0] stringByAppendingPathComponent:@"test.aac"];
-//    NSLog(@" uniquePath %@",uniquePath);
     BOOL blHave=[[NSFileManager defaultManager] fileExistsAtPath:uniquePath];
     if (blHave == NO) {
-        NSLog(@"录音失败，本地没有保存写入的文件");
     }else {
-        NSLog(@"录音成功，本地正常保存，即将删除");
         BOOL blDele= [fileManager removeItemAtPath:uniquePath error:nil];
         if (blDele) {
             self.player = nil;
-            NSLog(@"本地录音删除成功");
-        }else {
-            NSLog(@"本地录音删除失败");
         }
         
     }
 }
+#pragma mark - 语音的代理方法-
+- (void)speechRecognitionDidDetectSpeech:(SFSpeechRecognitionTask *)task {
+    
+    NSLog(@"检测到语音");
+
+}
+// Called for all recognitions, including non-final hypothesis
+- (void)speechRecognitionTask:(SFSpeechRecognitionTask *)task didHypothesizeTranscription:(SFTranscription *)transcription {
+    NSLog(@"基本完成 语音转换  %@",transcription.formattedString);
+    
+
+}
+
+// Called only for final recognitions of utterances. No more about the utterance will be reported
+- (void)speechRecognitionTask:(SFSpeechRecognitionTask *)task didFinishRecognition:(SFSpeechRecognitionResult *)recognitionResult {
+    NSLog(@"完成录音转换   %@",recognitionResult.bestTranscription);
+    NSMutableString  *targetString = [[NSMutableString alloc]init];
+    
+    for (int i = 0 ; i < recognitionResult.bestTranscription.segments.count; i ++) {
+        SFTranscriptionSegment *currentSeg = recognitionResult.bestTranscription.segments[i];
+        SFTranscriptionSegment *nextSeg = nil;
+        if (i != recognitionResult.bestTranscription.segments.count - 1) {
+           nextSeg = recognitionResult.bestTranscription.segments[i+1];
+        }
+        [targetString appendString:currentSeg.substring];
+        [targetString appendString:[self appendStringWithTwoTime:currentSeg andEndSegment:nextSeg]];
+    }
+    _textView.text = targetString;
+}
+
+- (NSString *)appendStringWithTwoTime:(SFTranscriptionSegment *)startSegment andEndSegment:(SFTranscriptionSegment *)endSegment {
+    NSTimeInterval interval = [self durationWithTwoTime:startSegment andEndSegment:endSegment];
+    if (interval > 0.6) {
+        return [self punctuationOfCurrentSpeechString:startSegment.substring];
+    }else if(interval == 0) {
+        return @".";
+    }else {
+        return @"";
+    }
+    
+}
+
+- (NSTimeInterval)durationWithTwoTime:(SFTranscriptionSegment *)startSegment andEndSegment:(SFTranscriptionSegment *)endSegment {
+    if (endSegment == nil) return 0;
+    NSTimeInterval startTime =  startSegment.timestamp;
+    NSTimeInterval endTime = endSegment.timestamp;
+    return  endTime - startTime;
+}
+
+// Called when the task is no longer accepting new audio but may be finishing final processing
+- (void)speechRecognitionTaskFinishedReadingAudio:(SFSpeechRecognitionTask *)task {
+    NSLog(@"不再接受其他任务");
+}
+
+// Called when the task has been cancelled, either by client app, the user, or the system
+- (void)speechRecognitionTaskWasCancelled:(SFSpeechRecognitionTask *)task {
+    
+    NSLog(@"任务被取消");
+
+}
+
+// Called when recognition of all requested utterances is finished.
+// If successfully is false, the error property of the task will contain error information
+- (void)speechRecognitionTask:(SFSpeechRecognitionTask *)task didFinishSuccessfully:(BOOL)successfully {
+    
+    NSLog(@"转换完成的时候");
+    
+}
+
+
+- (NSString *)punctuationOfCurrentSpeechString:(NSString *)speechString {
+    if (speechString.length == 0) return @"";
+    NSString *lastString = [speechString substringFromIndex:speechString.length  - 1];
+    _exclamations = @[@"啊",@"吧",@"呢",@"哈"];
+
+    if ([lastString isEqualToString:@"啊"]) {
+        return @"!";
+    }else if ([lastString isEqualToString:@"吧"])
+    {
+        return @"~";
+    }else if ([lastString isEqualToString:@"呢"]){
+        return @"?";
+    }else if ([lastString isEqualToString:@"哈"]) {
+        return @"~~";
+    }else {
+        return @",";
+    }
+}
+
 
 
 @end
